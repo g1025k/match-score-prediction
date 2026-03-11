@@ -200,10 +200,14 @@ function renderMatchCard(match, predictions) {
         ${deadlineHtml}
         ${predictBtnHtml}
 
-        <div class="predictions-section">
-          <div class="predictions-header">💬 みんなの予想（${predictions.length}件）</div>
-          ${predictionsHtml}
-        </div>
+      </div>
+      <button class="predictions-toggle" onclick="togglePredictions('${match.id}')" id="toggle-btn-${match.id}">
+        💬 みんなの予想
+        <span class="toggle-count">${predictions.length}件</span>
+        <span class="toggle-arrow">▼</span>
+      </button>
+      <div class="predictions-section" id="predictions-${match.id}">
+        ${predictionsHtml}
       </div>
     </div>
   `;
@@ -348,6 +352,15 @@ function closeModal(id) {
 
 function closeModalOnOverlay(event, id) {
   if (event.target.id === id) closeModal(id);
+}
+
+// ===== 予想トグル =====
+function togglePredictions(matchId) {
+  const section = document.getElementById(`predictions-${matchId}`);
+  const btn = document.getElementById(`toggle-btn-${matchId}`);
+  const isOpen = section.classList.contains('open');
+  section.classList.toggle('open', !isOpen);
+  btn.classList.toggle('active', !isOpen);
 }
 
 // ===== 試合 CRUD（管理者） =====
