@@ -289,12 +289,12 @@ function renderMatchDetail(matchId) {
           <div class="detail-team-block">
             <div class="detail-team-code">${escHtml(t1code)}</div>
             <div class="detail-team-name-lg">${escHtml(match.team1_name)}</div>
-            ${match.tournament ? `<div class="detail-team-sub">${escHtml(match.tournament)}</div>` : ''}
           </div>
           <div class="detail-center-block">
+            ${match.sport ? `<div class="detail-sport">${escHtml(match.sport)}</div>` : ''}
             <div class="detail-match-time">${escHtml(detailDateStr)}</div>
             <div class="detail-vs">VS</div>
-            ${match.sport ? `<div class="detail-sport">${escHtml(match.sport)}</div>` : ''}
+            ${match.tournament ? `<div class="detail-tournament">${escHtml(match.tournament)}</div>` : ''}
             ${scoreHtml}
           </div>
           <div class="detail-team-block detail-team-right">
