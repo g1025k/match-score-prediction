@@ -10,6 +10,8 @@ const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let isAdmin = false;
 let matches = [];
 let allPredictions = {}; // { matchId: [predictions] }
+let selectedMatchId = null;
+let countdownInterval = null;
 
 // 各モーダルで使う対象 ID
 let editingMatchId = null;
@@ -99,22 +101,97 @@ function renderMatches() {
     return;
   }
 
-  container.innerHTML = matches
-    .map(match => renderMatchCard(match, allPredictions[match.id] || []))
-    .join('');
+  // 選択中の試合が無効なら再選択（最初の未確定試合、なければ最後）
+  if (!selectedMatchId || !matches.find(m => m.id === selectedMatchId)) {
+    const upcoming = matches.find(m => !m.is_final);
+    selectedMatchId = upcoming ? upcoming.id : matches[matches.length - 1].id;
+  }
+
+  const confirmedCount = matches.filter(m => m.is_final).length;
+
+  container.innerHTML = `
+    <div class="match-tabs-wrapper">
+      <div class="tabs-label">
+        <span class="confirmed-label">✅ 確定スコア（${confirmedCount}試合）</span>
+      </div>
+      <div class="match-tabs-row" id="match-tabs-row">
+        ${matches.map(m => renderMatchTab(m)).join('')}
+      </div>
+    </div>
+    <div id="match-detail">
+      ${renderMatchDetail(selectedMatchId)}
+    </div>
+  `;
+
+  startCountdownTimer();
 }
 
-function renderMatchCard(match, predictions) {
+// タブ1枚のHTML生成
+function renderMatchTab(match) {
+  const isActive = match.id === selectedMatchId;
+  const date = new Date(match.match_datetime);
+  const dateStr = formatTabDate(date);
+
+  if (match.is_final && match.final_score_team1 !== null) {
+    const t1code = getCountryCode(match.team1_emoji) || match.team1_name.slice(0, 2).toUpperCase();
+    const t2code = getCountryCode(match.team2_emoji) || match.team2_name.slice(0, 2).toUpperCase();
+    const opponentShort = match.team2_name.length > 5
+      ? match.team2_name.slice(0, 4) + '…'
+      : match.team2_name;
+    return `
+      <div class="match-tab confirmed${isActive ? ' active' : ''}" onclick="selectMatch('${match.id}')">
+        <div class="tab-date">${escHtml(dateStr)}</div>
+        <div class="tab-score">${escHtml(t1code)} ${match.final_score_team1}−${match.final_score_team2} ${escHtml(t2code)}</div>
+        <div class="tab-sub">vs ${escHtml(opponentShort)}</div>
+      </div>
+    `;
+  } else {
+    const emoji = match.team2_emoji || '🏆';
+    const opponentName = match.team2_name || '未定';
+    return `
+      <div class="match-tab upcoming${isActive ? ' active' : ''}" onclick="selectMatch('${match.id}')">
+        <div class="tab-emoji">${escHtml(emoji)}</div>
+        <div class="tab-date">${escHtml(dateStr)}</div>
+        <div class="tab-sub">vs ${escHtml(opponentName)}</div>
+      </div>
+    `;
+  }
+}
+
+// 試合詳細パネルのHTML生成
+function renderMatchDetail(matchId) {
+  const match = matches.find(m => m.id === matchId);
+  if (!match) return '';
+
+  const predictions = allPredictions[matchId] || [];
   const myName = localStorage.getItem('userName');
   const now = new Date();
   const deadline = match.deadline ? new Date(match.deadline) : null;
   const isDeadlinePassed = deadline ? now > deadline : false;
 
-  // --- スコア表示 ---
+  // チームコード (フラグ絵文字→国コード)
+  const t1code = getCountryCode(match.team1_emoji) || match.team1_name.slice(0, 2).toUpperCase();
+
+  // カウントダウン
+  let countdownHtml = '';
+  if (deadline && !isDeadlinePassed) {
+    const diffMs = deadline - now;
+    const hours = Math.floor(diffMs / (1000 * 60 * 60));
+    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    countdownHtml = `
+      <div class="deadline-countdown" id="deadline-countdown">
+        ⏰ 締め切りまであと <strong>${hours}時間${minutes}分</strong>
+      </div>
+    `;
+  } else if (deadline && isDeadlinePassed) {
+    countdownHtml = `<div class="deadline-passed">🔒 締め切り済み</div>`;
+  }
+
+  // スコア表示
   let scoreHtml = '';
   if (match.is_final && match.final_score_team1 !== null) {
     scoreHtml = `
-      <div class="score-area">
+      <div class="detail-score-area">
         <div class="score-box final-score">
           <span class="score-box-label">✅ 確定スコア</span>
           <span class="score-box-value">${match.final_score_team1} − ${match.final_score_team2}</span>
@@ -123,7 +200,7 @@ function renderMatchCard(match, predictions) {
     `;
   } else if (match.live_score_team1 !== null) {
     scoreHtml = `
-      <div class="score-area">
+      <div class="detail-score-area">
         <div class="score-box live-score">
           <span class="score-box-label">🔴 途中スコア <span class="live-dot"></span></span>
           <span class="score-box-value">${match.live_score_team1} − ${match.live_score_team2}</span>
@@ -132,81 +209,85 @@ function renderMatchCard(match, predictions) {
     `;
   }
 
-  // --- 締め切りステータス ---
-  let deadlineHtml = '';
-  if (deadline) {
-    if (isDeadlinePassed) {
-      deadlineHtml = `<div class="deadline-area"><span class="deadline-chip closed">🔒 締め切り済み（${formatDateTime(deadline)}）</span></div>`;
-    } else {
-      deadlineHtml = `<div class="deadline-area"><span class="deadline-chip open">⏰ 締め切り：${formatDateTime(deadline)}</span></div>`;
-    }
+  // 管理者コントロール
+  let adminHtml = '';
+  if (isAdmin) {
+    adminHtml = `
+      <div class="detail-admin-bar">
+        <button class="btn btn-ghost btn-sm" onclick="openMatchForm('${match.id}')">✏️ 編集</button>
+        <button class="btn btn-ghost btn-sm" onclick="openLiveScoreModal('${match.id}')">⚽ スコア</button>
+        <button class="btn btn-ghost btn-sm" onclick="openDeadlineModal('${match.id}')">⏰ 締め切り</button>
+        <button class="btn btn-ghost btn-sm" onclick="deleteMatch('${match.id}')">🗑️ 削除</button>
+      </div>
+    `;
   }
 
-  // --- 予想ボタン ---
-  let predictBtnHtml = '';
+  // インライン予想フォーム
+  let predFormHtml = '';
   if (!match.is_final && !isDeadlinePassed) {
-    predictBtnHtml = `
-      <div class="predict-btn-area">
-        <button class="btn btn-primary" onclick="openPredictionModal('${match.id}')">
-          📝 スコアを予想する
+    const savedName = myName || '';
+    const existingPred = myName ? predictions.find(p => p.user_name === myName) : null;
+    const s1 = existingPred ? existingPred.score_team1 : 0;
+    const s2 = existingPred ? existingPred.score_team2 : 0;
+    predFormHtml = `
+      <div class="inline-pred-card">
+        <div class="pred-form-title-row">
+          <span class="pred-form-title-line"></span>
+          <span class="pred-form-title-text">予想を登録</span>
+          <span class="pred-form-title-line"></span>
+        </div>
+        <div class="pred-name-input-wrap">
+          <input type="text" id="inline-pred-name" class="pred-name-input" placeholder="名前を入力してください" value="${escHtml(savedName)}">
+        </div>
+        <div class="pred-score-row">
+          <span class="pred-team-label">${escHtml(match.team1_emoji || '')} ${escHtml(match.team1_name)}</span>
+          <input type="number" id="inline-score1" class="score-num-input" min="0" max="99" value="${s1}">
+          <span class="pred-dash">—</span>
+          <input type="number" id="inline-score2" class="score-num-input" min="0" max="99" value="${s2}">
+          <span class="pred-team-label">${escHtml(match.team2_emoji || '')} ${escHtml(match.team2_name || '未定')}</span>
+        </div>
+        <button class="btn btn-register-pred" onclick="saveInlinePrediction('${matchId}')">
+          ⚾ 予想を登録する
         </button>
       </div>
     `;
   }
 
-  // --- 管理者コントロール ---
-  let adminHtml = '';
-  if (isAdmin) {
-    adminHtml = `
-      <div class="admin-actions">
-        <button class="btn btn-ghost btn-sm" title="試合を編集" onclick="openMatchForm('${match.id}')">✏️</button>
-        <button class="btn btn-ghost btn-sm" title="スコア入力" onclick="openLiveScoreModal('${match.id}')">⚽</button>
-        <button class="btn btn-ghost btn-sm" title="締め切り設定" onclick="openDeadlineModal('${match.id}')">⏰</button>
-        <button class="btn btn-ghost btn-sm" title="削除" onclick="deleteMatch('${match.id}')">🗑️</button>
-      </div>
-    `;
-  }
-
-  // --- 予想リスト ---
+  // 予想リスト
   const predictionsHtml = renderPredictionsList(match, predictions, myName);
 
+  // 試合日時フォーマット
+  const matchDate = new Date(match.match_datetime);
+  const detailDateStr = formatDetailDate(matchDate);
+
   return `
-    <div class="match-card" id="match-card-${match.id}">
-      <div class="card-header">
-        <div class="card-meta">
-          <span class="sport-badge">${escHtml(match.sport)}</span>
-          ${match.tournament ? `<span class="tournament-badge">${escHtml(match.tournament)}</span>` : ''}
-        </div>
-        ${adminHtml}
-      </div>
-      <div class="card-body">
-        <div class="teams-display">
-          <div class="team-block">
-            <div class="team-emoji">${escHtml(match.team1_emoji) || '🏠'}</div>
-            <div class="team-name">${escHtml(match.team1_name)}</div>
+    <div class="match-detail-wrapper">
+      ${adminHtml}
+      <div class="detail-header-card">
+        <div class="detail-header-gradient-bar"></div>
+        <div class="detail-header-inner">
+          <div class="detail-team-block">
+            <div class="detail-team-code">${escHtml(t1code)}</div>
+            <div class="detail-team-name-lg">${escHtml(match.team1_name)}</div>
+            ${match.tournament ? `<div class="detail-team-sub">${escHtml(match.tournament)}</div>` : ''}
           </div>
-          <div class="vs-text">VS</div>
-          <div class="team-block">
-            <div class="team-emoji">${escHtml(match.team2_emoji) || '🚩'}</div>
-            <div class="team-name">${escHtml(match.team2_name)}</div>
+          <div class="detail-center-block">
+            <div class="detail-match-time">${escHtml(detailDateStr)}</div>
+            <div class="detail-vs">VS</div>
+            ${match.sport ? `<div class="detail-sport">${escHtml(match.sport)}</div>` : ''}
+            ${scoreHtml}
+          </div>
+          <div class="detail-team-block detail-team-right">
+            <div class="detail-team-emoji-lg">${escHtml(match.team2_emoji || '🏆')}</div>
+            <div class="detail-team-name-lg">${escHtml(match.team2_name || '未定')}</div>
+            <div class="detail-team-sub">${escHtml(match.team2_name || '未定')}</div>
           </div>
         </div>
-
-        <div class="match-info-bar">
-          <span class="info-item">📅 ${formatDateTime(new Date(match.match_datetime))}</span>
-        </div>
-
-        ${scoreHtml}
-        ${deadlineHtml}
-        ${predictBtnHtml}
-
       </div>
-      <button class="predictions-toggle" onclick="togglePredictions('${match.id}')" id="toggle-btn-${match.id}">
-        💬 みんなの予想
-        <span class="toggle-count">${predictions.length}件</span>
-        <span class="toggle-arrow">▼</span>
-      </button>
-      <div class="predictions-section" id="predictions-${match.id}">
+      ${countdownHtml}
+      ${predFormHtml}
+      <div class="predictions-section-header">みんなの予想</div>
+      <div class="predictions-inline-area">
         ${predictionsHtml}
       </div>
     </div>
@@ -215,7 +296,7 @@ function renderMatchCard(match, predictions) {
 
 function renderPredictionsList(match, predictions, myName) {
   if (predictions.length === 0) {
-    return '<div class="no-predictions">まだ予想がありません。最初に予想してみよう！</div>';
+    return `<div class="no-predictions">まだ誰も予想していません<br>最初に予想してみよう！ ⚾</div>`;
   }
 
   const now = new Date();
@@ -289,13 +370,140 @@ function renderPredictionsList(match, predictions, myName) {
   return `<div class="predictions-list">${items.join('')}</div>`;
 }
 
+// タブ選択
+function selectMatch(matchId) {
+  selectedMatchId = matchId;
+  // タブ行を更新
+  const tabsRow = document.getElementById('match-tabs-row');
+  if (tabsRow) {
+    tabsRow.innerHTML = matches.map(m => renderMatchTab(m)).join('');
+  }
+  // 詳細エリアを更新
+  const detailContainer = document.getElementById('match-detail');
+  if (detailContainer) {
+    detailContainer.innerHTML = renderMatchDetail(matchId);
+    startCountdownTimer();
+  }
+}
+
+// インライン予想の保存
+async function saveInlinePrediction(matchId) {
+  const nameInput = document.getElementById('inline-pred-name');
+  const score1Input = document.getElementById('inline-score1');
+  const score2Input = document.getElementById('inline-score2');
+  if (!nameInput || !score1Input || !score2Input) return;
+
+  const userName = nameInput.value.trim();
+  const score_team1 = parseInt(score1Input.value);
+  const score_team2 = parseInt(score2Input.value);
+
+  if (!userName) {
+    showToast('名前を入力してください', 'error');
+    return;
+  }
+  if (isNaN(score_team1) || isNaN(score_team2)) {
+    showToast('スコアを入力してください', 'error');
+    return;
+  }
+
+  localStorage.setItem('userName', userName);
+
+  const existing = (allPredictions[matchId] || []).find(p => p.user_name === userName);
+  let error;
+  if (existing) {
+    ({ error } = await db.from('predictions')
+      .update({ score_team1, score_team2 })
+      .eq('id', existing.id));
+  } else {
+    ({ error } = await db.from('predictions').insert([{
+      match_id: matchId,
+      user_name: userName,
+      score_team1,
+      score_team2,
+    }]));
+  }
+
+  if (error) {
+    showToast('保存に失敗しました：' + error.message, 'error');
+    return;
+  }
+
+  showToast('予想を登録しました！', 'success');
+  await loadAllPredictions();
+  selectMatch(matchId);
+}
+
+// カウントダウンタイマー
+function startCountdownTimer() {
+  if (countdownInterval) {
+    clearInterval(countdownInterval);
+    countdownInterval = null;
+  }
+  const match = matches.find(m => m.id === selectedMatchId);
+  if (!match || !match.deadline) return;
+
+  const deadline = new Date(match.deadline);
+  countdownInterval = setInterval(() => {
+    const now = new Date();
+    if (now > deadline) {
+      clearInterval(countdownInterval);
+      countdownInterval = null;
+      const detailContainer = document.getElementById('match-detail');
+      if (detailContainer) {
+        detailContainer.innerHTML = renderMatchDetail(selectedMatchId);
+      }
+      return;
+    }
+    const diffMs = deadline - now;
+    const hours = Math.floor(diffMs / (1000 * 60 * 60));
+    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    const countdownEl = document.getElementById('deadline-countdown');
+    if (countdownEl) {
+      countdownEl.innerHTML = `⏰ 締め切りまであと <strong>${hours}時間${minutes}分</strong>`;
+    }
+  }, 60000);
+}
+
+// フラグ絵文字から国コードを取得
+function getCountryCode(emoji) {
+  if (!emoji) return '';
+  const chars = [...emoji];
+  if (chars.length >= 2) {
+    const cp0 = chars[0].codePointAt(0);
+    const cp1 = chars[1].codePointAt(0);
+    if (cp0 >= 0x1F1E6 && cp0 <= 0x1F1FF && cp1 >= 0x1F1E6 && cp1 <= 0x1F1FF) {
+      return String.fromCodePoint(cp0 - 0x1F1E6 + 65) + String.fromCodePoint(cp1 - 0x1F1E6 + 65);
+    }
+  }
+  return '';
+}
+
+// タブ用日付フォーマット "3/6(金)"
+function formatTabDate(date) {
+  const days = ['日', '月', '火', '水', '木', '金', '土'];
+  const m = date.getMonth() + 1;
+  const d = date.getDate();
+  const day = days[date.getDay()];
+  return `${m}/${d}(${day})`;
+}
+
+// 詳細用日付フォーマット "3/15(日) 10:00〜"
+function formatDetailDate(date) {
+  const days = ['日', '月', '火', '水', '木', '金', '土'];
+  const m = date.getMonth() + 1;
+  const d = date.getDate();
+  const day = days[date.getDay()];
+  const h = String(date.getHours()).padStart(2, '0');
+  const min = String(date.getMinutes()).padStart(2, '0');
+  return `${m}/${d}(${day}) ${h}:${min}〜`;
+}
+
 // ===== 管理者認証 =====
 function handleAdminBtn() {
   if (isAdmin) {
     adminLogout();
   } else {
     openModal('admin-login-modal');
-    // エラーメッセージリセット
     document.getElementById('admin-login-error').classList.add('hidden');
     document.getElementById('admin-password-input').value = '';
     setTimeout(() => document.getElementById('admin-password-input').focus(), 150);
@@ -354,15 +562,6 @@ function closeModalOnOverlay(event, id) {
   if (event.target.id === id) closeModal(id);
 }
 
-// ===== 予想トグル =====
-function togglePredictions(matchId) {
-  const section = document.getElementById(`predictions-${matchId}`);
-  const btn = document.getElementById(`toggle-btn-${matchId}`);
-  const isOpen = section.classList.contains('open');
-  section.classList.toggle('open', !isOpen);
-  btn.classList.toggle('active', !isOpen);
-}
-
 // ===== 試合 CRUD（管理者） =====
 function openMatchForm(matchId = null) {
   editingMatchId = matchId;
@@ -384,12 +583,10 @@ function openMatchForm(matchId = null) {
     }
   } else {
     document.getElementById('match-form-title').textContent = '試合を追加';
-    // フォームリセット
     ['form-team1-emoji','form-team1-name','form-team2-emoji','form-team2-name',
      'form-sport','form-tournament','form-deadline'].forEach(id => {
       document.getElementById(id).value = '';
     });
-    // 試合日時デフォルト：明日の19時
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     tomorrow.setHours(19, 0, 0, 0);
@@ -450,11 +647,12 @@ async function deleteMatch(matchId) {
     return;
   }
 
+  selectedMatchId = null;
   showToast('試合を削除しました');
   await loadAll();
 }
 
-// ===== 予想 CRUD =====
+// ===== 予想 CRUD（モーダル編集用） =====
 async function openPredictionModal(matchId, predId = null) {
   predictionTargetMatchId = matchId;
   editingPredictionId = predId;
@@ -469,11 +667,9 @@ async function openPredictionModal(matchId, predId = null) {
   document.getElementById('pred-team2-label').textContent =
     `${match.team2_emoji || ''} ${match.team2_name}`;
 
-  // 名前を localStorage から復元
   const savedName = localStorage.getItem('userName');
   document.getElementById('pred-username').value = savedName || '';
 
-  // 既存予想を読み込み（編集時）
   if (predId) {
     const pred = (allPredictions[matchId] || []).find(p => p.id === predId);
     if (pred) {
@@ -502,27 +698,22 @@ async function savePrediction() {
     return;
   }
 
-  // 名前を localStorage に保存
   localStorage.setItem('userName', userName);
 
   let error;
   if (editingPredictionId) {
-    // 既存予想を更新
     ({ error } = await db.from('predictions')
       .update({ score_team1, score_team2 })
       .eq('id', editingPredictionId));
   } else {
-    // 同名ユーザーの同試合予想を確認
     const existing = (allPredictions[predictionTargetMatchId] || [])
       .find(p => p.user_name === userName);
 
     if (existing) {
-      // 上書き更新
       ({ error } = await db.from('predictions')
         .update({ score_team1, score_team2 })
         .eq('id', existing.id));
     } else {
-      // 新規登録
       ({ error } = await db.from('predictions').insert([{
         match_id: predictionTargetMatchId,
         user_name: userName,
@@ -555,7 +746,6 @@ function openLiveScoreModal(matchId) {
   document.getElementById('live-team2-label').textContent =
     `${match.team2_emoji || ''} ${match.team2_name}`;
 
-  // 現在のスコアを表示
   const s1 = match.is_final
     ? match.final_score_team1
     : (match.live_score_team1 ?? 0);
