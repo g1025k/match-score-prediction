@@ -254,13 +254,16 @@ function renderMatchDetail(matchId) {
           <span class="pred-form-title-line"></span>
         </div>
         <div class="pred-name-input-wrap">
-          <input type="text" id="inline-pred-name" class="pred-name-input" placeholder="名前を入力してください" value="${escHtml(savedName)}">
+          <input type="text" id="inline-pred-name" class="pred-name-input" placeholder="名前を入力してください" value="${escHtml(savedName)}"
+            oninput="localStorage.setItem('userName', this.value)">
         </div>
         <div class="pred-score-row">
           <span class="pred-team-label">${escHtml(match.team1_emoji || '')} ${escHtml(match.team1_name)}</span>
-          <input type="number" id="inline-score1" class="score-num-input" min="0" max="99" value="${s1}">
+          <input type="number" id="inline-score1" class="score-num-input" min="0" max="99" value="${s1}"
+            oninput="if(this.value<0||this.value==='-')this.value=0">
           <span class="pred-dash">—</span>
-          <input type="number" id="inline-score2" class="score-num-input" min="0" max="99" value="${s2}">
+          <input type="number" id="inline-score2" class="score-num-input" min="0" max="99" value="${s2}"
+            oninput="if(this.value<0||this.value==='-')this.value=0">
           <span class="pred-team-label">${escHtml(match.team2_emoji || '')} ${escHtml(match.team2_name || '未定')}</span>
         </div>
         <button class="btn btn-register-pred" onclick="saveInlinePrediction('${matchId}')">
@@ -415,8 +418,8 @@ async function saveInlinePrediction(matchId) {
   if (!nameInput || !score1Input || !score2Input) return;
 
   const userName = nameInput.value.trim();
-  const score_team1 = parseInt(score1Input.value);
-  const score_team2 = parseInt(score2Input.value);
+  const score_team1 = Math.max(0, parseInt(score1Input.value) || 0);
+  const score_team2 = Math.max(0, parseInt(score2Input.value) || 0);
 
   if (!userName) {
     showToast('名前を入力してください', 'error');
