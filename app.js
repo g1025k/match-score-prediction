@@ -107,17 +107,34 @@ function renderMatches() {
     selectedMatchId = upcoming ? upcoming.id : matches[matches.length - 1].id;
   }
 
-  const confirmedCount = matches.filter(m => m.is_final).length;
+  const confirmedMatches = matches.filter(m => m.is_final);
+  const upcomingMatches = matches.filter(m => !m.is_final);
 
-  container.innerHTML = `
+  const confirmedTabsHtml = confirmedMatches.length > 0 ? `
     <div class="match-tabs-wrapper">
       <div class="tabs-label">
-        <span class="confirmed-label">✅ 確定スコア（${confirmedCount}試合）</span>
+        <span class="confirmed-label">✅ 確定スコア（${confirmedMatches.length}試合）</span>
       </div>
-      <div class="match-tabs-row" id="match-tabs-row">
-        ${matches.map(m => renderMatchTab(m)).join('')}
+      <div class="match-tabs-row" id="match-tabs-row-confirmed">
+        ${confirmedMatches.map(m => renderMatchTab(m)).join('')}
       </div>
     </div>
+  ` : '';
+
+  const upcomingTabsHtml = upcomingMatches.length > 0 ? `
+    <div class="match-tabs-wrapper upcoming-tabs-wrapper">
+      <div class="tabs-label">
+        <span class="upcoming-label">⚾ 予想受付中</span>
+      </div>
+      <div class="match-tabs-row" id="match-tabs-row-upcoming">
+        ${upcomingMatches.map(m => renderMatchTab(m)).join('')}
+      </div>
+    </div>
+  ` : '';
+
+  container.innerHTML = `
+    ${confirmedTabsHtml}
+    ${upcomingTabsHtml}
     <div id="match-detail">
       ${renderMatchDetail(selectedMatchId)}
     </div>
@@ -247,7 +264,7 @@ function renderMatchDetail(matchId) {
           <span class="pred-team-label">${escHtml(match.team2_emoji || '')} ${escHtml(match.team2_name || '未定')}</span>
         </div>
         <button class="btn btn-register-pred" onclick="saveInlinePrediction('${matchId}')">
-          ⚾ 予想を登録する
+          予想を登録する
         </button>
       </div>
     `;
@@ -373,10 +390,14 @@ function renderPredictionsList(match, predictions, myName) {
 // タブ選択
 function selectMatch(matchId) {
   selectedMatchId = matchId;
-  // タブ行を更新
-  const tabsRow = document.getElementById('match-tabs-row');
-  if (tabsRow) {
-    tabsRow.innerHTML = matches.map(m => renderMatchTab(m)).join('');
+  // タブ行を更新（確定・未確定それぞれ）
+  const confirmedRow = document.getElementById('match-tabs-row-confirmed');
+  if (confirmedRow) {
+    confirmedRow.innerHTML = matches.filter(m => m.is_final).map(m => renderMatchTab(m)).join('');
+  }
+  const upcomingRow = document.getElementById('match-tabs-row-upcoming');
+  if (upcomingRow) {
+    upcomingRow.innerHTML = matches.filter(m => !m.is_final).map(m => renderMatchTab(m)).join('');
   }
   // 詳細エリアを更新
   const detailContainer = document.getElementById('match-detail');
