@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>スコア予想サイト</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+</head>
+<body>
+
+  <!-- ヘッダー -->
+  <header>
+    <div class="header-inner">
+      <h1 class="site-title">🏆 スコア予想</h1>
+      <div class="header-actions">
+        <span id="admin-badge" class="hidden">👑 管理者</span>
+        <button id="admin-btn" class="btn btn-outline" onclick="handleAdminBtn()">管理者ログイン</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- メインコンテンツ -->
+  <main>
+    <div class="container">
+      <div id="admin-toolbar" class="hidden">
+        <button class="btn btn-primary" onclick="openMatchForm()">＋ 試合を追加</button>
+      </div>
+      <div id="matches-grid">
+        <div class="loading">
+          <div class="spinner"></div>
+          <p>読み込み中...</p>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- トースト通知 -->
+  <div id="toast-container"></div>
+
+  <!-- ========== モーダル群 ========== -->
+
+  <!-- 管理者ログインモーダル -->
+  <div id="admin-login-modal" class="modal-overlay hidden" onclick="closeModalOnOverlay(event,'admin-login-modal')">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>👑 管理者ログイン</h2>
+        <button class="modal-close" onclick="closeModal('admin-login-modal')">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>パスワード</label>
+          <input type="password" id="admin-password-input" placeholder="パスワードを入力"
+                 onkeydown="if(event.key==='Enter') adminLogin()">
+        </div>
+        <p id="admin-login-error" class="error-text hidden">パスワードが正しくありません</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('admin-login-modal')">キャンセル</button>
+        <button class="btn btn-primary" onclick="adminLogin()">ログイン</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 試合登録/編集モーダル -->
+  <div id="match-form-modal" class="modal-overlay hidden" onclick="closeModalOnOverlay(event,'match-form-modal')">
+    <div class="modal modal-large">
+      <div class="modal-header">
+        <h2 id="match-form-title">試合を追加</h2>
+        <button class="modal-close" onclick="closeModal('match-form-modal')">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-group">
+            <label>スポーツ <span class="required">*</span></label>
+            <input type="text" id="form-sport" placeholder="サッカー、バスケなど">
+          </div>
+          <div class="form-group">
+            <label>大会名（オプション）</label>
+            <input type="text" id="form-tournament" placeholder="ワールドカップ 2026 など">
+          </div>
+        </div>
+        <div class="team-form-row">
+          <div class="form-group emoji-group">
+            <label>絵文字</label>
+            <input type="text" id="form-team1-emoji" placeholder="🇯🇵" maxlength="4">
+          </div>
+          <div class="form-group flex-1">
+            <label>チーム1（ホーム） <span class="required">*</span></label>
+            <input type="text" id="form-team1-name" placeholder="日本">
+          </div>
+          <div class="vs-badge">VS</div>
+          <div class="form-group emoji-group">
+            <label>絵文字</label>
+            <input type="text" id="form-team2-emoji" placeholder="🇺🇸" maxlength="4">
+          </div>
+          <div class="form-group flex-1">
+            <label>チーム2（アウェイ） <span class="required">*</span></label>
+            <input type="text" id="form-team2-name" placeholder="アメリカ">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>試合日時 <span class="required">*</span></label>
+            <input type="datetime-local" id="form-match-datetime">
+          </div>
+          <div class="form-group">
+            <label>予想締め切り日時</label>
+            <input type="datetime-local" id="form-deadline">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('match-form-modal')">キャンセル</button>
+        <button class="btn btn-primary" onclick="saveMatch()">保存する</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- スコア予想モーダル -->
+  <div id="prediction-modal" class="modal-overlay hidden" onclick="closeModalOnOverlay(event,'prediction-modal')">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="prediction-modal-title">📝 スコアを予想</h2>
+        <button class="modal-close" onclick="closeModal('prediction-modal')">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="prediction-match-info" class="match-info-banner"></div>
+        <div class="form-group">
+          <label>あなたの名前 <span class="required">*</span></label>
+          <input type="text" id="pred-username" placeholder="名前を入力してください">
+        </div>
+        <div class="score-input-row">
+          <div class="score-input-team">
+            <label id="pred-team1-label">チーム1</label>
+            <input type="number" id="pred-score-team1" min="0" max="99" value="0">
+          </div>
+          <div class="score-separator">−</div>
+          <div class="score-input-team">
+            <label id="pred-team2-label">チーム2</label>
+            <input type="number" id="pred-score-team2" min="0" max="99" value="0">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('prediction-modal')">キャンセル</button>
+        <button class="btn btn-primary" onclick="savePrediction()">予想を登録する</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- スコア入力モーダル（管理者用） -->
+  <div id="livescore-modal" class="modal-overlay hidden" onclick="closeModalOnOverlay(event,'livescore-modal')">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="livescore-modal-title">⚽ スコア入力</h2>
+        <button class="modal-close" onclick="closeModal('livescore-modal')">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="livescore-match-info" class="match-info-banner"></div>
+        <div class="score-input-row">
+          <div class="score-input-team">
+            <label id="live-team1-label">チーム1</label>
+            <input type="number" id="live-score-team1" min="0" max="99" value="0">
+          </div>
+          <div class="score-separator">−</div>
+          <div class="score-input-team">
+            <label id="live-team2-label">チーム2</label>
+            <input type="number" id="live-score-team2" min="0" max="99" value="0">
+          </div>
+        </div>
+        <p class="hint-text">途中スコアまたは確定スコアを入力してください</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('livescore-modal')">キャンセル</button>
+        <button class="btn btn-warning" onclick="saveLiveScore()">途中スコアを保存</button>
+        <button class="btn btn-success" onclick="confirmFinalScore()">✓ 確定スコアにする</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 締め切り設定モーダル（管理者用） -->
+  <div id="deadline-modal" class="modal-overlay hidden" onclick="closeModalOnOverlay(event,'deadline-modal')">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>⏰ 締め切り時間の設定</h2>
+        <button class="modal-close" onclick="closeModal('deadline-modal')">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="deadline-match-info" class="match-info-banner"></div>
+        <div class="form-group">
+          <label>予想締め切り日時</label>
+          <input type="datetime-local" id="deadline-input">
+        </div>
+        <p class="hint-text">締め切り後に延長したい場合は、この時間を未来に変更してください</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('deadline-modal')">キャンセル</button>
+        <button class="btn btn-primary" onclick="saveDeadline()">保存する</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
