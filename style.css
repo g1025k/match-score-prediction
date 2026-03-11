@@ -940,6 +940,19 @@ input[type="number"]::-webkit-outer-spin-button {
   gap: 0.3rem;
 }
 
+.upcoming-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #fca5a5;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.upcoming-tabs-wrapper {
+  margin-top: 0.2rem;
+}
+
 .match-tabs-row {
   display: flex;
   gap: 0.6rem;
