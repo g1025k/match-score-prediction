@@ -71,16 +71,45 @@ const ADMIN_PASSWORD = 'your-password-here';
 
 ---
 
-## ステップ 3：Netlify にデプロイ
+## ステップ 3：ホスティングにデプロイ（短いURLで公開）
 
-### 方法A：ドラッグ&ドロップ（最も簡単）
+デプロイ先を選んで、好きな短いサブドメインでサイトを公開できます。
+
+---
+
+### 🔵 選択肢A：Vercel（おすすめ）
+
+**URL例：** `https://match-prediction.vercel.app`
+
+#### デプロイ手順
+
+1. [https://vercel.com](https://vercel.com) にアクセスしてアカウント作成（GitHub連携推奨）
+2. **「Add New... → Project」** をクリック
+3. このリポジトリを選択 → **「Deploy」**
+4. ビルド設定は不要（静的サイトとして自動認識されます）
+
+#### URLを短く変更する方法
+
+1. Vercel ダッシュボードでプロジェクトを開く
+2. **「Settings」** → **「Domains」** を開く
+3. 既存の `xxxx-xxxxx-xxx.vercel.app` の代わりに好きな名前を追加：
+   - 例：`match-prediction.vercel.app`
+   - 「Add」ボタンで追加 → 古いURLは削除してOK
+
+---
+
+### 🟩 選択肢B：Netlify
+
+**URL例：** `https://match-prediction.netlify.app`
+
+#### 方法A：ドラッグ&ドロップ（最も簡単）
 
 1. [https://netlify.com](https://netlify.com) にアクセスしてアカウント作成
 2. ダッシュボードの **「Add new site」** → **「Deploy manually」**
 3. このプロジェクトフォルダ全体をブラウザにドラッグ&ドロップ
 4. 数秒でデプロイ完了！URLが発行されます
 
-### 方法B：GitHub 連携（自動デプロイ）
+#### 方法B：GitHub 連携（自動デプロイ）
 
 1. プロジェクトを GitHub にプッシュ
 2. Netlify で **「Add new site」** → **「Import an existing project」**
@@ -88,6 +117,13 @@ const ADMIN_PASSWORD = 'your-password-here';
 4. **Build settings** はそのまま（静的サイトなので不要）
 5. **「Deploy site」** をクリック
 6. 以後、GitHub に push するたびに自動デプロイされる
+
+#### URLを短く変更する方法
+
+1. Netlify ダッシュボードでサイトを開く
+2. **「Site configuration」** → **「General」** → **「Site details」**
+3. **「Change site name」** をクリック
+4. 好きな名前を入力（例：`match-prediction`）→ `match-prediction.netlify.app` になる
 
 ---
 
